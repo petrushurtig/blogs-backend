@@ -1,35 +1,24 @@
 const mongoose = require('mongoose')
 const supertest = require('supertest')
+const helper = require('./test_helper')
 const app = require('../app')
 const api = supertest(app)
 const Blog = require('../models/blog')
+const { put } = require('../app')
 
-const initialBlogs = [
-    {
-        title: 'Very Good Blog post',
-        author: 'Andrei Author',
-        url: 'www.blog.com',
-        likes: 77
-    },
-    {
-        title: 'Super Blog post',
-        author: 'Anna Writerson',
-        url: 'www.bestblogs.com',
-        likes: 125
-    }
-]
+
 beforeEach(async () => {
     await Blog.deleteMany({})
-    let blogObj = new Blog(initialBlogs[0])
-    await blogObj.save()
-    blogObj = new Blog(initialBlogs[1])
-    await blogObj.save()
+    await Blog.insertMany(helper.initialBlogs)
 })
-describe('blogs api tests', () => {
-test('blogs are returned as json', async () => {
+describe('when there is initially some blogs saved', () => {
+test('all blogs are returned as json', async () => {
+    await api
+    .get('/api/blogs')
+    .expect(200)
+    .expect('Content-Type', /application\/json/)
     const response = await api.get('/api/blogs')
-    const content = response.body.map(r => r)
-    expect(response.body).toHaveLength(initialBlogs.length)
+    expect(response.body).toHaveLength(helper.initialBlogs.length)
 })
 test('identifier is called id', async () => {
     const response = await api.get('/api/blogs')
@@ -37,57 +26,151 @@ test('identifier is called id', async () => {
         expect(element.hasOwnProperty('id')).toBe(true)
     })
 })
-test('a new blog is added to db', async () => {
-    const newBlog = {
-        title: 'How to add blog posts?',
-        author: 'Test Man',
-        url: 'stackoverflow.com',
-        likes: 0
-    }
-    await api
-    .post('/api/blogs')
-    .send(newBlog)
-    .expect(201)
-    .expect('Content-Type', /application\/json/)
-
-    const response = await api.get('/api/blogs')
-    const titles = response.body.map(r => r.title)
-    expect(response.body).toHaveLength(initialBlogs.length +1)
-    expect(titles).toContain(
-        'How to add blog posts?'
-    )
 })
-test('blog without likes gets likes:0', async () => {
-    const newBlog = {
-        title: 'How to add blog posts?',
-        author: 'Test Man',
-        url: 'stackoverflow.com'
-    }
-    await api
-    .post('/api/blogs')
-    .send(newBlog)
-    .expect(201)
-    .expect('Content-Type', /application\/json/)
+describe('viewing a spesific note', () => {
+    test('succeeds with a valid id', async () => {
+        const blogsAtStart = await helper.blogsInDb()
+        const blogToView = blogsAtStart[0]
+        const resultBlog = await api
+            .get(`/api/blogs/${blogToView.id}`)
+            .expect(200)
+            .expect('Content-Type', /application\/json/)
 
-    const response = await api.get('/api/blogs')
-    expect(response.body).toHaveLength(initialBlogs.length +1)
-    expect(response.body.at(-1).likes).toBe(0)
+        const processedBlog = JSON.parse(JSON.stringify(blogToView))
+        expect(resultBlog.body).toEqual(processedBlog)
+    })
+    test('fails with status code 404 if id is not found', async() => {
+        const notFoundId = await helper.nonExistingId()
+        await api
+        .get(`/api/blogs/${notFoundId}`)
+        .expect(404)
+    })
 })
+describe('addition of a new blog', () => {
+    test('succeeds with valid data', async () => {
+        const newBlog = {
+            title: 'How to add blog posts?',
+            author: 'Test Man',
+            url: 'stackoverflow.com',
+            likes: 0
+        }
+        await api
+        .post('/api/blogs')
+        .send(newBlog)
+        .expect(201)
+        .expect('Content-Type', /application\/json/)
+    
+        const blogsAtEnd = await helper.blogsInDb()
+        expect(blogsAtEnd).toHaveLength(helper.initialBlogs.length +1)
+    
+        const titles = blogsAtEnd.map(b => b.title)
+        expect(titles).toContain(
+            'How to add blog posts?'
+        )
+    })
+    test('gives default value of 0 to "likes"', async () => {
+        const newBlog = {
+            title: 'How to add blog posts?',
+            author: 'Test Man',
+            url: 'stackoverflow.com'
+        }
+        await api
+        .post('/api/blogs')
+        .send(newBlog)
+        .expect(201)
+        .expect('Content-Type', /application\/json/)
+    
+        const blogsAtEnd = await helper.blogsInDb()
+        expect(blogsAtEnd).toHaveLength(helper.initialBlogs.length +1)
+        expect(blogsAtEnd.at(-1).likes).toBe(0)
+    })
+    test('fails with status code 400 without needed data', async() => {
+        const newBlog = {
+            author: 'Test Man',
+            likes: 123
+        }
+        await api
+        .post('/api/blogs')
+        .send(newBlog)
+        .expect(400)
+        .expect('Content-Type', /application\/json/)
 
-test('post without title and url gives status 400', async() => {
-    const newBlog = {
-        author: 'Test Man',
-        likes: 123
-    }
-    await api
-    .post('/api/blogs')
-    .send(newBlog)
-    .expect(400)
-    .expect('Content-Type', /application\/json/)
+        const blogsAtEnd = await helper.blogsInDb()
+        expect(blogsAtEnd).toHaveLength(helper.initialBlogs.length)
+        })
+})
+describe('deletion of a blog', () => {
+    test('succeeds with status code 204 if id is valid', async () => {
+        const blogsAtStart = await helper.blogsInDb()
+        const blogToDelete = blogsAtStart[0]
 
+        await api
+            .delete(`/api/blogs/${blogToDelete.id}`)
+            .expect(204)
+
+        const blogsAtEnd = await helper.blogsInDb()
+        expect(blogsAtEnd).toHaveLength(
+            helper.initialBlogs.length -1
+        )
+        const titles = blogsAtEnd.map(r => r.title)
+        expect(titles).not.toContain(blogToDelete.title)
+    })
+    test('fails with status code 400 if id is invalid', async () => {
+        await api
+            .delete(`/api/blogs/1`)
+            .expect(400)
+    })
+    test('fails with status code 204 if blog is not found', async () => {
+        const id = await helper.nonExistingId()
+        await api
+            .delete(`/api/blogs/${id}`)
+            .expect(204)
+    })
+})
+describe('updating a blog', () => {
+    test('gives status code 200 if id is valid', async () => {
+        const blogsAtStart = await helper.blogsInDb()
+        const id = blogsAtStart[0].id
+        const updated = {
+            title: 'Updated title',
+            author: 'Updated author',
+            url: 'updatedurl.com',
+            likes: 12
+        }
+        await api
+            .put(`/api/blogs/${id}`)
+            .send(updated)
+            .expect(200)
+        const blogsAtEnd = await helper.blogsInDb()
+        const titles = blogsAtEnd.map(b => b.title)
+        expect(titles).toContain('Updated title')
+        
+    })
+    test('gives status code 404 if id is not found', async () => {
+        const id = await helper.nonExistingId()
+        const updated = {
+            title: 'Updated title',
+            author: 'Updated author',
+            url: 'updatedurl.com',
+            likes: 12
+        }
+        await api
+        .put(`/api/blogs/${id}`, updated)
+        .expect(404)
+    })
+    test('gives status code 400 if id is invalid', async () => {
+        const updated = {
+            title: 'Updated title',
+            author: 'Updated author',
+            url: 'updatedurl.com',
+            likes: 12
+        }
+        await api
+            .put('/api/blogs/1', updated)
+            .expect(400)
+    })
 })
 
 afterAll(() => {
     mongoose.connection.close()
-})
 })
