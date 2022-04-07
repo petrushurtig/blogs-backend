@@ -4,7 +4,7 @@ const User = require('../models/user')
 
 const userExtractor = async (req, res, next) => {
     const auth = req.get('authorization')
-    if(!auth) return res.status(403).send('Access denied')
+    if(!auth) return res.status(401).send('unauthorized')
     if(auth && auth.toLowerCase().startsWith('bearer ')){
         const token = auth.substring(7)
         const decoded = jwt.verify(token, process.env.SECRET)
