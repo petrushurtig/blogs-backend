@@ -1,8 +1,12 @@
 const blogsRouter = require('express').Router()
 const app = require('../app')
+const jwt = require('jsonwebtoken')
 const Blog = require('../models/blog')
 const User = require('../models/user')
+const middleware = require('../utils/middleware')
+const blog = require('../models/blog')
 
+const getUser = middleware.userExtractor
 //GET
 blogsRouter.get('/', async (req, res) => {
     const blogs = await Blog.find({}).populate('user', { username: 1, name: 1, _id: 1})
@@ -18,10 +22,10 @@ blogsRouter.get('/:id', async (req, res) => {
     }
 })
 //POST
-blogsRouter.post('/', async (req, res) => {
+blogsRouter.post('/',getUser, async (req, res) => {
     const body = req.body
-    const user = await User.findById('624c2e72a5d4b468e3b151b0')
-   
+    const user = req.user
+    
     const blog = new Blog({
         title: body.title,
         author: body.author,
@@ -36,24 +40,36 @@ blogsRouter.post('/', async (req, res) => {
 })
 
 //DELETE
-blogsRouter.delete('/:id', async (req, res) => {
-    await Blog.findByIdAndRemove(req.params.id)
-    res.status(204).end()
+blogsRouter.delete('/:id',getUser , async (req, res) => {
+    const user = req.user
+    const blog = await Blog.findById(req.params.id)
+    if(!blog){
+        res.status(404).end()
+    }
+    if(blog.user.toString() ===  user._id.toString()){
+        await Blog.findByIdAndRemove(req.params.id)
+        res.status(204).end()
+    }
 })
 //PUT
-blogsRouter.put('/:id', async (req, res, next) => {
+blogsRouter.put('/:id',getUser, async (req, res, next) => {
     const body = req.body
+    const user = req.user
     const blog = {
         title: body.title,
-        author: body.author,
+        author: body.author, 
         url: body.url,
-        likes: body.likes
+        likes: body.likes,
     }
-    const blogToUpdate = await Blog.findByIdAndUpdate(req.params.id, blog, { new: true })
-    if(blogToUpdate){
-        res.status(200).json(blogToUpdate)
-    } else {
+    const blogToUpdate = await Blog.findById(req.params.id)
+    if(!blogToUpdate){
         res.status(404).end()
+    }
+    if(blogToUpdate && blogToUpdate.user.toString() === user._id.toString()){
+       const updated=  await Blog.findByIdAndUpdate(req.params.id, blog, { new: true })
+        if(updated){
+            res.status(200).json(updated)
+        }
     }
 })
 
