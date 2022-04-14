@@ -24,14 +24,14 @@ blogsRouter.get('/:id', async (req, res) => {
 //POST
 blogsRouter.post('/',getUser, async (req, res) => {
     const body = req.body
-    const user = req.user
-    
+    const user = await User.findById(req.user)
+
     const blog = new Blog({
         title: body.title,
         author: body.author,
         url: body.url,
         likes: body.likes,
-        user: user._id
+        user: user
     })
     const savedBlog = await blog.save()
     user.blogs = user.blogs.concat(savedBlog._id)
